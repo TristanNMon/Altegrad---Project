@@ -14,7 +14,7 @@ from model import Graph2TextModel
 # =========================================================
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 BATCH_SIZE = 32
-EPOCHS = 20
+EPOCHS = 5
 LEARNING_RATE = 5e-4 # Slightly lower for pre-trained models
 WEIGHT_DECAY = 1e-2
 
