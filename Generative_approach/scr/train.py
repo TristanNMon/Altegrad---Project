@@ -1,168 +1,132 @@
 import torch
 import torch.optim as optim
+import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import pandas as pd
 import os
 
-# Import our custom modules
 from data_loader import GenerativeGraphDataset, collate_fn
 from model import Graph2TextModel
 
-# =========================================================
-# Configuration
-# =========================================================
+# Config
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 BATCH_SIZE = 32
-EPOCHS = 5
-LEARNING_RATE = 5e-4 # Slightly lower for pre-trained models
+EPOCHS = 10
+LEARNING_RATE = 5e-4
 WEIGHT_DECAY = 1e-2
 
 PATHS = {
     "train": "../data/train_graphs.pkl",
     "val": "../data/validation_graphs.pkl",
     "test": "../data/test_graphs.pkl",
-    "save_path": "checkpoints/best_model.pt",
+    "train_emb": "../data/train_embeddings.csv",
+    "val_emb": "../data/validation_embeddings.csv",
+    "save_path": "checkpoints/best_model_lora.pt",
     "submission": "submission.csv"
 }
 
-# =========================================================
-# Training Loop
-# =========================================================
-def train_epoch(model, loader, optimizer, epoch):
+def train_epoch(model, loader, optimizer, mse_criterion, epoch):
     model.train()
     total_loss = 0
     
     loop = tqdm(loader, desc=f"Epoch {epoch} [Train]")
-    for batch_graph, input_ids, attention_mask in loop:
-        # Move data to GPU
+    
+    # UNPACK 4 ITEMS
+    for batch_graph, input_ids, attention_mask, target_bert_emb in loop:
         batch_graph = batch_graph.to(DEVICE)
         input_ids = input_ids.to(DEVICE)
         attention_mask = attention_mask.to(DEVICE)
+        target_bert_emb = target_bert_emb.to(DEVICE)
         
-        # Forward pass (Auto-calculates Loss because we provide labels)
-        outputs = model(batch_graph, input_ids, attention_mask)
-        loss = outputs.loss # CrossEntropyLoss provided by Hugging Face
+        # FORWARD: Get outputs AND projected vector
+        outputs, projected_emb = model(batch_graph, input_ids, attention_mask)
         
-        # Backward pass
+        # 1. Generation Loss (Write good English)
+        gen_loss = outputs.loss 
+        
+        # 2. Alignment Loss (Match graph meaning to text meaning)
+        align_loss = mse_criterion(projected_emb, target_bert_emb)
+        
+        # HYBRID LOSS
+        loss = gen_loss + (10.0 * align_loss)
+        
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         
         total_loss += loss.item()
-        loop.set_postfix(loss=loss.item())
+        loop.set_postfix(loss=loss.item(), gen=gen_loss.item(), align=align_loss.item())
         
     return total_loss / len(loader)
 
-# =========================================================
-# Validation Loop
-# =========================================================
 @torch.no_grad()
-def eval_epoch(model, loader, epoch):
+def eval_epoch(model, loader, mse_criterion, epoch):
     model.eval()
     total_loss = 0
     
     loop = tqdm(loader, desc=f"Epoch {epoch} [Val]")
-    for batch_graph, input_ids, attention_mask in loop:
+    for batch_graph, input_ids, attention_mask, target_bert_emb in loop:
         batch_graph = batch_graph.to(DEVICE)
         input_ids = input_ids.to(DEVICE)
         attention_mask = attention_mask.to(DEVICE)
+        target_bert_emb = target_bert_emb.to(DEVICE)
         
-        outputs = model(batch_graph, input_ids, attention_mask)
-        loss = outputs.loss
+        outputs, projected_emb = model(batch_graph, input_ids, attention_mask)
+        gen_loss = outputs.loss
+        align_loss = mse_criterion(projected_emb, target_bert_emb)
         
+        loss = gen_loss + (10.0 * align_loss)
         total_loss += loss.item()
         loop.set_postfix(loss=loss.item())
         
     return total_loss / len(loader)
 
-# =========================================================
-# Inference / Generation (Kaggle Submission)
-# =========================================================
 @torch.no_grad()
 def generate_submission(model, test_path, tokenizer, output_file):
     print(f"\nGenerative Inference on {test_path}...")
     model.eval()
-    
-    # Load Test Data (No shuffle, batch_size=1 for safety in generation)
     test_ds = GenerativeGraphDataset(test_path, split="test")
     loader = DataLoader(test_ds, batch_size=1, collate_fn=collate_fn, shuffle=False)
     
     results = []
-    
-    for batch_graph, _, _ in tqdm(loader, desc="Generating Captions"):
+    for batch_graph, _, _, _ in tqdm(loader):
         batch_graph = batch_graph.to(DEVICE)
-        
-        # Beam Search Generation
-        output_tokens = model.generate_caption(
-            batch_graph, 
-            tokenizer, 
-            max_length=128, 
-            num_beams=5 # Higher beam = better quality, slower
-        )
-        
-        # Decode tokens to text
-        # skip_special_tokens removes <s>, </s>, <pad>
+        output_tokens = model.generate_caption(batch_graph, tokenizer)
         caption = tokenizer.decode(output_tokens[0], skip_special_tokens=True)
-        
-        # Store result with ID
-        # Note: batch.id is a list of IDs in the batch
-        results.append({
-            "ID": batch_graph.id[0], 
-            "description": caption
-        })
+        results.append({"ID": batch_graph.id[0], "description": caption})
     
-    # Save to CSV
-    df = pd.DataFrame(results)
-    df.to_csv(output_file, index=False)
+    pd.DataFrame(results).to_csv(output_file, index=False)
     print(f"Saved submission to {output_file}")
 
-# =========================================================
-# Main Function
-# =========================================================
 def main():
     os.makedirs("checkpoints", exist_ok=True)
     
-    # 1. Load Data
-    print("Initializing Data Loaders...")
-    train_ds = GenerativeGraphDataset(PATHS["train"], split="train")
-    val_ds = GenerativeGraphDataset(PATHS["val"], split="val")
+    print("Initializing Data Loaders with Embeddings...")
+    train_ds = GenerativeGraphDataset(PATHS["train"], emb_path=PATHS["train_emb"], split="train")
+    val_ds = GenerativeGraphDataset(PATHS["val"], emb_path=PATHS["val_emb"], split="val")
     
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn)
     val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn)
     
-    # 2. Initialize Model
-    print("Initializing Model...")
+    print("Initializing LoRA Model...")
     model = Graph2TextModel().to(DEVICE)
-    
-    # AdamW is standard for Transformers (handles weight decay better)
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
+    mse_criterion = nn.MSELoss()
     
-    # 3. Training Loop
     best_val_loss = float("inf")
-    
     for epoch in range(1, EPOCHS + 1):
-        train_loss = train_epoch(model, train_loader, optimizer, epoch)
-        val_loss = eval_epoch(model, val_loader, epoch)
+        train_loss = train_epoch(model, train_loader, optimizer, mse_criterion, epoch)
+        val_loss = eval_epoch(model, val_loader, mse_criterion, epoch)
+        print(f"Epoch {epoch} | Train: {train_loss:.4f} | Val: {val_loss:.4f}")
         
-        print(f"Epoch {epoch} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
-        
-        # Save Best Model
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             torch.save(model.state_dict(), PATHS["save_path"])
-            print(">>> New Best Model Saved!")
             
-    # 4. Generate Submission
-    print("\nTraining Complete. Loading Best Model for Generation...")
+    print("Generating Submission...")
     model.load_state_dict(torch.load(PATHS["save_path"]))
-    
-    generate_submission(
-        model, 
-        PATHS["test"], 
-        train_ds.tokenizer, 
-        PATHS["submission"]
-    )
+    generate_submission(model, PATHS["test"], train_ds.tokenizer, PATHS["submission"])
 
 if __name__ == "__main__":
     main()
