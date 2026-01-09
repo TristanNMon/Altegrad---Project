@@ -29,8 +29,16 @@ VAL_EMB_CSV   = "data/validation_embeddings.csv"
 BATCH_SIZE = 32
 EPOCHS = 5
 LR = 1e-3
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
+# DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+if torch.cuda.is_available():
+    DEVICE = "cuda"
+    print("Using CUDA")
+elif torch.backends.mps.is_available():
+    DEVICE = "mps"
+    print("Using MPS")
+else:
+    DEVICE = "cpu"
+    print("Using CPU")
 
 # =========================================================
 # MODEL: GNN to encode graphs (simple GCN, no edge features)

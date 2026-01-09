@@ -14,7 +14,12 @@ MAX_TOKEN_LENGTH = 128
 print("Loading BERT model...")
 tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
 model = AutoModel.from_pretrained('bert-base-uncased')
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = torch.device(
+    "cuda" if torch.cuda.is_available()
+    else "mps" if torch.backends.mps.is_available()
+    else "cpu"
+)
 model = model.to(device)
 model.eval()
 print(f"Model loaded on: {device}")
