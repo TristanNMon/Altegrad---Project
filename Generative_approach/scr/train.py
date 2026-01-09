@@ -14,7 +14,7 @@ from model import Graph2TextModel
 # =========================================================
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 BATCH_SIZE = 32
-EPOCHS = 5
+EPOCHS = 10
 LEARNING_RATE = 5e-4 # Slightly lower for pre-trained models
 WEIGHT_DECAY = 1e-2
 
@@ -23,7 +23,7 @@ PATHS = {
     "val": "../data/validation_graphs.pkl",
     "test": "../data/test_graphs.pkl",
     "save_path": "checkpoints/best_model.pt",
-    "submission": "submission.csv"
+    "submission": "../Output/submission_1.csv"
 }
 
 # =========================================================
