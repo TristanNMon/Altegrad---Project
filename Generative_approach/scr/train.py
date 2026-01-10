@@ -11,15 +11,9 @@ from model import Graph2TextModel
 
 # Config
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-<<<<<<< HEAD
-BATCH_SIZE = 16
-EPOCHS = 10
-LEARNING_RATE = 5e-4
-=======
 BATCH_SIZE = 32
 EPOCHS = 10
 LEARNING_RATE = 5e-4 # Slightly lower for pre-trained models
->>>>>>> main
 WEIGHT_DECAY = 1e-2
 MODEL = 'biogpt'
 
