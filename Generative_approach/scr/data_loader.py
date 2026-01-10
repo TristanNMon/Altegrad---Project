@@ -1,33 +1,37 @@
 import pickle
 import torch
-from torch.utils.data import Dataset, DataLoader
+import pandas as pd
+import numpy as np
+from torch.utils.data import Dataset
 from torch_geometric.data import Batch
 from transformers import AutoTokenizer
 
 class GenerativeGraphDataset(Dataset):
     """
-    Dataset for Graph-to-Text Generation.
-    
-    Returns:
-        - graph: PyTorch Geometric Data object
-        - input_ids: Token indices for the caption (for the LLM)
-        - attention_mask: Mask to ignore padding tokens
+    Dataset that loads graphs, tokenizes text, and retrieves pre-computed BERT embeddings.
     """
-    def __init__(self, graph_path, tokenizer_name="distilgpt2", max_len=128, split="train"):
+    def __init__(self, graph_path, emb_path=None, tokenizer_name="microsoft/biogpt", max_len=256, split="train"):
         print(f"Loading {split} graphs from: {graph_path}")
         with open(graph_path, 'rb') as f:
             self.graphs = pickle.load(f)
         
-        # Load the tokenizer (using DistilGPT2 by default as it's efficient)
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+        # Load BERT Embeddings (The "Gold Standard" for alignment)
+        self.id2emb = {}
+        if emb_path:
+            print(f"Loading BERT embeddings from {emb_path}...")
+            df = pd.read_csv(emb_path)
+            # Parse CSV: "0.1,0.2,..." -> Tensor
+            for _, row in df.iterrows():
+                emb_vals = np.fromstring(row["embedding"], sep=',')
+                self.id2emb[str(row["ID"])] = torch.tensor(emb_vals, dtype=torch.float32)
         
-        # GPT-2 does not have a pad token by default, so we use the EOS token
+        # Initialize Tokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
             
         self.max_len = max_len
         self.split = split
-        print(f"Loaded {len(self.graphs)} graphs for {split}")
 
     def __len__(self):
         return len(self.graphs)
@@ -35,15 +39,13 @@ class GenerativeGraphDataset(Dataset):
     def __getitem__(self, idx):
         graph = self.graphs[idx]
         
-        # Prepare the text target
+        # 1. Prepare Text (Target)
         if self.split == "test":
-            # Test set has no descriptions, return dummy text or just the graph
             text = ""
         else:
             text = graph.description
 
-        # Tokenize the text
-        # We add the EOS token to the end so the model learns when to stop generating
+        # 2. Tokenize
         encoding = self.tokenizer(
             text,
             truncation=True,
@@ -51,44 +53,25 @@ class GenerativeGraphDataset(Dataset):
             max_length=self.max_len,
             return_tensors="pt"
         )
-        
         input_ids = encoding['input_ids'].squeeze(0)
         attention_mask = encoding['attention_mask'].squeeze(0)
         
-        return graph, input_ids, attention_mask
+        # 3. Retrieve BERT Embedding (for Alignment Loss)
+        # If test set or missing, return zero vector
+        if hasattr(self, 'id2emb') and str(graph.id) in self.id2emb:
+            bert_emb = self.id2emb[str(graph.id)]
+        else:
+            bert_emb = torch.zeros(768) # Default size for BERT-base
+        
+        return graph, input_ids, attention_mask, bert_emb
 
 def collate_fn(batch):
-    """
-    Custom collate function to handle variable size graphs and token sequences.
-    """
-    graphs, input_ids, attention_masks = zip(*batch)
+    # Unpack 4 items
+    graphs, input_ids, att_masks, bert_embs = zip(*batch)
     
-    # Batch the graphs into a single large graph (standard PyG practice)
     batch_graph = Batch.from_data_list(list(graphs))
-    
-    # Stack the text tensors (they are already padded to max_len)
     input_ids = torch.stack(input_ids)
-    attention_masks = torch.stack(attention_masks)
+    att_masks = torch.stack(att_masks)
+    bert_embs = torch.stack(bert_embs)
     
-    return batch_graph, input_ids, attention_masks
-
-# =========================================================
-# Quick Test Block
-# =========================================================
-if __name__ == "__main__":
-    # Point this to your actual data path to test
-    dummy_path = "../data/train_graphs.pkl" 
-    
-    try:
-        ds = GenerativeGraphDataset(dummy_path, max_len=64)
-        loader = DataLoader(ds, batch_size=4, collate_fn=collate_fn)
-        
-        batch_graph, batch_ids, batch_mask = next(iter(loader))
-        
-        print("\n--- Data Loader Test ---")
-        print(f"Batch Graphs: {batch_graph}") 
-        print(f"Batch IDs Shape: {batch_ids.shape}") # Should be [4, 64]
-        print(f"Decoded first sample: {ds.tokenizer.decode(batch_ids[0], skip_special_tokens=True)}")
-        print("Success!")
-    except FileNotFoundError:
-        print(f"Could not find {dummy_path}, skipping test.")
+    return batch_graph, input_ids, att_masks, bert_embs
