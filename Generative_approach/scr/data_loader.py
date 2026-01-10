@@ -10,7 +10,7 @@ class GenerativeGraphDataset(Dataset):
     """
     Dataset that loads graphs, tokenizes text, and retrieves pre-computed BERT embeddings.
     """
-    def __init__(self, graph_path, emb_path=None, tokenizer_name="distilgpt2", max_len=128, split="train"):
+    def __init__(self, graph_path, emb_path=None, tokenizer_name="microsoft/biogpt", max_len=256, split="train"):
         print(f"Loading {split} graphs from: {graph_path}")
         with open(graph_path, 'rb') as f:
             self.graphs = pickle.load(f)
