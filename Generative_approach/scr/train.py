@@ -32,10 +32,7 @@ PATHS = {
     "val_emb": f"../data/validation_{MODEL}_embeddings.csv",
     "save_path": f"checkpoints/best_model_{MODEL}.pt",
     "submission": f"../Output/submission_{MODEL}.csv"
-=======
-    "save_path": "checkpoints/best_model.pt",
-    "submission": "../Output/submission_1.csv"
->>>>>>> main
+>>>>>>>>> Temporary merge branch 2
 }
 
 def train_epoch(model, loader, optimizer, mse_criterion, epoch):
