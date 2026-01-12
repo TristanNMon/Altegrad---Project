@@ -1,0 +1,13 @@
+epochs: 8
+lr: 1e-3
+min_lr: 1e-5
+scheduler: cosine_warmup
+warmup_epochs: 1
+
+early_stop_patience: 5
+early_stop_min_delta: 1e-4
+
+train_graphs: data/train_graphs_mock.pkl
+val_graphs: data/validation_graphs_mock.pkl
+
+out: tmp/run_test_lr_sched_early_stopp.pth

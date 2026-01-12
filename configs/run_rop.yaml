@@ -1,0 +1,39 @@
+# ===== Data (REAL) =====
+train_graphs: data/train_graphs.pkl
+val_graphs: data/validation_graphs.pkl
+train_emb_csv: data/train_text_embeddings.csv
+val_emb_csv: data/validation_text_embeddings.csv
+
+out: checkpoint_rop.pt
+
+# ===== Core =====
+epochs: 30
+lr: 8.0e-4
+min_lr: 1.0e-5
+
+scheduler: reduce_on_plateau
+
+# ===== ReduceLROnPlateau (CONSERVATIVE) =====
+rop_factor: 0.5 # gentle decay
+rop_patience: 3 # wait for real plateau
+rop_threshold: 1.0e-3 # MRR noise floor
+rop_threshold_mode: abs
+rop_cooldown: 1 # avoid repeated drops
+
+# ===== Early stopping =====
+early_stop_patience: 8
+early_stop_min_delta: 1.0e-4
+
+# ===== Training =====
+max_nodes_per_batch: 4000
+batch_size: 64 # fallback only
+grad_clip: 1.0
+
+# ===== Model =====
+layers: 5
+model_dim: 256
+out_dim: 256
+dropout: 0.1
+
+# ===== Repro =====
+seed: 0
