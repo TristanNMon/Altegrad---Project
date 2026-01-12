@@ -1,0 +1,51 @@
+# -------------------------
+# Data
+# -------------------------
+train_graphs: data/train_graphs.pkl
+val_graphs: data/validation_graphs.pkl
+train_emb_csv: data/train_text_embeddings.csv
+val_emb_csv: data/validation_text_embeddings.csv
+
+# -------------------------
+# Output / reproducibility
+# -------------------------
+out: runs/checkpoint_1.pt
+seed: 0
+
+# -------------------------
+# Model
+# -------------------------
+model_dim: 256
+out_dim: 256
+layers: 5
+dropout: 0.1
+
+# -------------------------
+# Optimization
+# -------------------------
+lr: 0.001 # higher than default 3e-4; typically works well with AdamW + contrastive
+weight_decay: 0.0001
+grad_clip: 1.0
+
+# -------------------------
+# Batching
+# -------------------------
+max_nodes_per_batch: 4000 # keep size-aware batching (recommended)
+batch_size: 64 # only used if max_nodes_per_batch == 0
+
+# -------------------------
+# Training control
+# -------------------------
+epochs: 25 # more than default 15; gives cosine time to matter
+
+scheduler: cosine_warmup
+warmup_epochs: 2 # slightly more conservative than default 1
+min_lr: 1e-5 # keep default (1% of 1e-3)
+
+early_stop_patience: 8 # keep default
+early_stop_min_delta: 0.001 # MORE realistic for real val (1000 samples): avoids stopping on tiny noise
+
+# -------------------------
+# Safety
+# -------------------------
+mock: false

@@ -5,6 +5,7 @@ import math
 import pickle
 import hashlib
 from collections import Counter, defaultdict
+import csv  # add this import at the top
 
 # Optional plotting (safe if not installed)
 try:
@@ -13,6 +14,44 @@ try:
     HAS_PLT = True
 except Exception:
     HAS_PLT = False
+
+
+from data_utils import load_descriptions_from_graphs
+
+
+# CSV
+def save_descriptions_csv(
+    graph_pkl_path: str,
+    out_csv_path: str,
+    limit: int | None = None,
+):
+    """
+    Save (id, description) pairs from a graph .pkl into a CSV.
+    Uses load_descriptions_from_graphs from your data_utils.
+
+    Args:
+        graph_pkl_path: path to split pkl (train/val)
+        out_csv_path: where to save CSV
+        limit: optionally cap number of rows
+    """
+    # NOTE: this uses your project function (make sure it's importable in this script)
+    id2desc = load_descriptions_from_graphs(graph_pkl_path)
+
+    rows = list(id2desc.items())
+    rows.sort(key=lambda x: int(x[0]) if str(x[0]).isdigit() else str(x[0]))
+
+    if limit is not None:
+        rows = rows[: int(limit)]
+
+    os.makedirs(os.path.dirname(out_csv_path) or ".", exist_ok=True)
+
+    # Standard CSV: quotes are added only when needed (commas/newlines/etc.)
+    with open(out_csv_path, "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["id", "description"])
+        w.writerows(rows)
+
+    print(f"Saved descriptions CSV: {out_csv_path} (rows={len(rows)})")
 
 
 # -----------------------------
@@ -524,6 +563,13 @@ def main():
         stats[split] = inspect_split(
             data_list, split_name=split, num_samples=1, rare_threshold=10
         )
+
+        # Save descriptions CSV (train/val only; test likely has none)
+        if split in ("train", "validation"):
+            save_descriptions_csv(
+                graph_pkl_path=path,
+                out_csv_path=os.path.join(out_dir, f"{split}_descriptions.csv"),
+            )
 
         # Optional plots
         plot_hist(
