@@ -80,3 +80,62 @@ Don't throw away the baseline's logic!
 
 5. [ ] **Report:** Document "what didn't work" (e.g., if simple GCNs failed to capture chirality) as explicitly requested for the report.
 
+
+# ALTEGRAD 2025: Molecular Graph Captioning (Generative Approach)
+
+## 🧪 Project Overview
+This project addresses the ALTEGRAD Data Challenge: **Molecular Graph Captioning**. The goal is to "translate" a molecule's 2D graph structure (atoms and bonds) into a coherent, human-readable text description.
+
+While the provided baseline treats this as a **Retrieval Task** (finding the closest existing caption), this repository implements a **Generative Model** (Encoder-Decoder) to synthesize new descriptions from scratch. This approach allows for the description of novel molecular structures not seen during training.
+
+---
+
+## 🏗️ Architecture & Philosophy
+
+Our approach bridges Graph Representation Learning and Natural Language Processing (NLP) through a modular pipeline. We deviate from the baseline by treating the problem as a sequence-to-sequence task rather than an embedding-similarity task.
+
+### Module 1: Data Preparation (The "Translator")
+* **Objective:** Convert raw graph data and text into trainable sequences.
+* **The Shift:**
+    * *Baseline:* Used pre-computed BERT embeddings (fixed vectors).
+    * *Our Approach:* Implements a **Tokenizer** (e.g., GPT-2 Tokenizer). We treat text as a sequence of tokens to train the model on next-word prediction.
+* **Report Justification:** "Generative modeling requires token-level supervision to learn syntax and chemical terminology, whereas static embeddings lose fine-grained lexical details."
+
+### Module 2: The Graph Encoder (The "Chemist")
+* **Objective:** Create a chemically accurate vector representation of the molecule.
+* **The Shift:**
+    * *Baseline:* Vanilla GCN that ignored atom types (random initialization) and edge features.
+    * *Our Approach:* **GINE (Graph Isomorphism Network with Edge Features)** or **Graph Transformer**. We strictly map the specific features provided (Chirality, Hybridization, Bond Type) to learnable embeddings.
+* **Report Justification:** "Standard GCNs fail to capture stereochemistry (cis/trans isomers) and bond types (single vs. double), which are critical for describing molecular geometry and reactivity."
+
+### Module 3: The Decoder (The "Author")
+* **Objective:** Translate the chemical representation into fluent English.
+* **The Shift:**
+    * *Baseline:* None (Retrieval only).
+    * *Our Approach:* **Soft-Prompting a Pre-trained LLM (DistilGPT-2)**. The graph embedding is projected into the LLM's input space and acts as a "prefix" or "context" token.
+* **Report Justification:** "Training a decoder from scratch on ~33k samples risks overfitting. Leveraging a pre-trained Language Model (Transfer Learning) provides a strong prior for English grammar, allowing the model to focus on learning chemical content."
+
+### Module 4: Training & Inference (The "Loop")
+* **Objective:** Optimize the generation quality.
+* **The Shift:**
+    * *Baseline:* MSE Loss (distance in latent space).
+    * *Our Approach:* **Cross-Entropy Loss** (maximizing likelihood of the correct next word) + **Beam Search** for inference.
+* **Report Justification:** "MSE is a poor proxy for text quality. Cross-Entropy directly aligns the model with the discrete nature of language generation."
+
+---
+
+## 📂 Project Structure
+
+```text
+├── data/
+│   ├── train_graphs.pkl      # PyTorch Geometric Data objects
+│   ├── test_graphs.pkl       # (Description hidden)
+│   └── ...
+├── src/
+│   ├── data_loader.py        # GenerativeGraphDataset & Tokenizer logic
+│   ├── encoder.py            # AtomEncoder, BondEncoder, GINE/GAT architecture
+│   ├── decoder.py            # Adapter layer & Pre-trained LLM wrapper
+│   └── train.py              # Training loop with Cross-Entropy Loss
+├── generate.py               # Inference script using Beam Search
+└── README.md                 # Project documentation
+

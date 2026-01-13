@@ -5,23 +5,46 @@ from peft import get_peft_model, LoraConfig, TaskType
 from encoder import GINEEncoder
 
 class Graph2TextModel(nn.Module):
-    def __init__(self, encoder_hidden_dim=256, llm_name="distilgpt2", drop_ratio=0.1):
+    def __init__(self, encoder_hidden_dim=256, llm_name="microsoft/biogpt", drop_ratio=0.1):
         super().__init__()
         
         # 1. The Chemist (Graph Encoder)
         self.encoder = GINEEncoder(hidden_dim=encoder_hidden_dim, drop_ratio=drop_ratio)
         
         # 2. The Author (LLM + LoRA)
-        base_llm = AutoModelForCausalLM.from_pretrained(llm_name)
+        base_llm = AutoModelForCausalLM.from_pretrained(
+            llm_name,
+            use_safetensors=True
+        )
+
+        if "biogpt" in llm_name.lower():
+            target_modules = ["q_proj", "v_proj"]
+        else:
+            # Fallback for GPT-2 / DistilGPT2
+            target_modules = ["c_attn"]
+
         peft_config = LoraConfig(
             task_type=TaskType.CAUSAL_LM, 
             inference_mode=False, 
             r=8, 
             lora_alpha=32, 
-            lora_dropout=0.1
+            lora_dropout=0.1,
+            target_modules=target_modules
         )
+
+        # Try 'n_embd' (GPT2) or 'hidden_size' (BioGPT)
         self.llm = get_peft_model(base_llm, peft_config)
-        self.llm_dim = base_llm.config.n_embd
+        
+        # Safety Check: Ensure self.llm was created
+        assert hasattr(self, 'llm'), "Model initialization failed: self.llm was not assigned."
+
+        # --- Handle different config names ---
+        config = base_llm.config
+        # Try 'n_embd' (GPT2) or 'hidden_size' (BioGPT)
+        self.llm_dim = getattr(config, "n_embd", getattr(config, "hidden_size", None))
+        
+        if self.llm_dim is None:
+            raise ValueError(f"Could not determine hidden dimension for {llm_name}")
         
         # 3. The Projector (Bridge with Normalization)
         self.projector = nn.Sequential(
@@ -67,7 +90,7 @@ class Graph2TextModel(nn.Module):
         return llm_input_emb
 
     @torch.no_grad()
-    def generate_caption(self, batch, tokenizer, max_length=128, num_beams=10):
+    def generate_caption(self, batch, tokenizer, max_length=256, num_beams=10):
         # 1. Encode
         graph_emb = self.encoder(batch)
         projected_emb = self.projector(graph_emb).unsqueeze(1)
@@ -91,8 +114,9 @@ class Graph2TextModel(nn.Module):
             attention_mask=attention_mask,
             max_length=max_length,
             num_beams=num_beams,
-            temperature=0.7,
-            repetition_penalty=2.5,
+            temperature=0.8,
+            repetition_penalty=2.0,
+            length_penalty=1.2,
             no_repeat_ngram_size=3,
             do_sample=True,
             pad_token_id=tokenizer.pad_token_id,
