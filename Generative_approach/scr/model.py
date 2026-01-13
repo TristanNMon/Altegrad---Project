@@ -79,9 +79,16 @@ class Graph2TextModel(nn.Module):
         
         inputs_embeds = torch.cat((projected_emb, bos_embed), dim=1)
         
+        attention_mask = torch.ones(
+            inputs_embeds.shape[:2], 
+            dtype=torch.long, 
+            device=inputs_embeds.device
+        )
+
         # 3. Generate (High quality params)
         outputs = self.llm.generate(
             inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
             max_length=max_length,
             num_beams=num_beams,
             temperature=0.7,
