@@ -1,0 +1,39 @@
+# ===== Data (MOCK) =====
+train_graphs: data/train_graphs_mock.pkl
+val_graphs: data/validation_graphs_mock.pkl
+train_emb_csv: data/train_text_embeddings.csv
+val_emb_csv: data/validation_text_embeddings.csv
+
+out: tmp/run_rop_debug.pt
+
+# ===== Core =====
+epochs: 12
+lr: 1.0e-3
+min_lr: 1.0e-5
+
+scheduler: reduce_on_plateau
+
+# ===== ReduceLROnPlateau (AGGRESSIVE, FOR DEBUG) =====
+rop_factor: 0.3 # large visible LR drops
+rop_patience: 1 # trigger quickly
+rop_threshold: 5.0e-3 # ignore metric noise
+rop_threshold_mode: abs
+rop_cooldown: 0
+
+# ===== Early stopping (LENIENT) =====
+early_stop_patience: 6
+early_stop_min_delta: 5.0e-3
+
+# ===== Training =====
+batch_size: 8 # small for mock
+max_nodes_per_batch: 1500
+grad_clip: 1.0
+
+# ===== Model (lighter for speed) =====
+layers: 3
+model_dim: 192
+out_dim: 192
+dropout: 0.1
+
+# ===== Repro =====
+seed: 0

@@ -1,0 +1,17 @@
+.altegrad_project
+
+# data
+data/
+data_baseline/data
+data_baseline/eda_outputs
+*/__pycache__
+
+# exploration & eda
+exploration/
+eda_outputs/
+
+# runs, submissions, tmp
+runs/
+good_runs/
+submissions/
+tmp/
