@@ -17,7 +17,9 @@ The project is organized into three main experimental folders. Below is the glob
 ```text
 .
 ├── upgraded_baseline/          # 🏆 Best Retrieval Approach (Score: 0.601)
-│   └── train_gcn.py # Main inference script for submission
+│   ├── make_text_embeddings_from_graphs.py # Create text embeddings with pretrained text encoder
+│   ├── train_gcn.py # Main inference script for submission
+│   └── retrieval_answer.py  # Generate predictions from trained model in submission-ready format.
 │
 ├── T5/                         # 🥈 Best Generative Approach (Score: 0.544)
 │   ├── data/
