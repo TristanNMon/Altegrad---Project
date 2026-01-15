@@ -5,8 +5,8 @@ from transformers import AutoTokenizer, T5ForConditionalGeneration, Seq2SeqTrain
 # Load external MolTextNet dataset
 dataset = load_dataset("liuganghuggingface/moltextnet")
 
-# Use T5-small for faster training, T5-base for better accuracy [cite: 96]
-# PDF suggests starting small (GPT-2 Medium mentioned as example) [cite: 96]
+# Use T5-small for faster training, T5-base for better accuracy 
+# PDF suggests starting small (GPT-2 Medium mentioned as example)
 model_name = "laituan245/molt5-small" 
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 

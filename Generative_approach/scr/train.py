@@ -21,12 +21,10 @@ PATHS = {
     "train": "../data/train_graphs.pkl",
     "val": "../data/validation_graphs.pkl",
     "test": "../data/test_graphs.pkl",
-<<<<<<< HEAD
     "train_emb": f"../data/train_{MODEL}_embeddings.csv",
     "val_emb": f"../data/validation_{MODEL}_embeddings.csv",
     "save_path": f"checkpoints/best_model_{MODEL}.pt",
     "submission": f"../Output/submission_{MODEL}.csv"
->>>>>>>>> Temporary merge branch 2
 }
 
 def train_epoch(model, loader, optimizer, mse_criterion, epoch):
@@ -114,18 +112,18 @@ def main():
     
     # print("Initializing LoRA Model...")
     model = Graph2TextModel().to(DEVICE)
-    # optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
-    # mse_criterion = nn.MSELoss()
+    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
+    mse_criterion = nn.MSELoss()
     
-    # best_val_loss = float("inf")
-    # for epoch in range(1, EPOCHS + 1):
-    #     train_loss = train_epoch(model, train_loader, optimizer, mse_criterion, epoch)
-    #     val_loss = eval_epoch(model, val_loader, mse_criterion, epoch)
-    #     print(f"Epoch {epoch} | Train: {train_loss:.4f} | Val: {val_loss:.4f}")
+    best_val_loss = float("inf")
+    for epoch in range(1, EPOCHS + 1):
+        train_loss = train_epoch(model, train_loader, optimizer, mse_criterion, epoch)
+        val_loss = eval_epoch(model, val_loader, mse_criterion, epoch)
+        print(f"Epoch {epoch} | Train: {train_loss:.4f} | Val: {val_loss:.4f}")
         
-    #     if val_loss < best_val_loss:
-    #         best_val_loss = val_loss
-    #         torch.save(model.state_dict(), PATHS["save_path"])
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            torch.save(model.state_dict(), PATHS["save_path"])
             
     print("Generating Submission...")
     model.load_state_dict(torch.load(PATHS["save_path"]))
