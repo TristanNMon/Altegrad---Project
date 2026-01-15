@@ -1,6 +1,4 @@
 """
-retrieval_answer.py
-
 Generate the submission CSV by *retrieving* a caption from the training set.
 
 Pipeline:
@@ -97,12 +95,15 @@ def retrieve_batch(
     train_text_z: [N, D] normalized text embeddings
     Returns list of retrieved descriptions for each query in batch.
     """
+
+    # Compute dot-product similarity
     sim = g @ train_text_z.T  # [B, N]
 
     if k <= 1 or not smooth:
         top1 = sim.argmax(dim=1).tolist()
         return [train_descs[i] for i in top1]
 
+    # Get top k score
     topk_val, topk_idx = torch.topk(sim, k=k, dim=1)
 
     # soft prototype in text space

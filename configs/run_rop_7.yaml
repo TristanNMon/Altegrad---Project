@@ -4,11 +4,11 @@ val_graphs: data/validation_graphs.pkl
 train_emb_csv: data/train_text_embeddings.csv
 val_emb_csv: data/validation_text_embeddings.csv
 
-out: checkpoint_rop.pt
+out: runs/checkpoint_rop_7.pt
 
 # ===== Core =====
-epochs: 80
-lr: 8.0e-4
+epochs: 160
+lr: 1.0e-2 # increased learning rate
 min_lr: 1.0e-5
 
 scheduler: reduce_on_plateau
@@ -21,7 +21,7 @@ rop_threshold_mode: abs
 rop_cooldown: 1 # avoid repeated drops
 
 # ===== Early stopping =====
-early_stop_patience: 8
+early_stop_patience: 10
 early_stop_min_delta: 1.0e-4
 
 # ===== Training =====
@@ -30,9 +30,9 @@ batch_size: 64 # fallback only
 grad_clip: 1.0
 
 # ===== Model =====
-layers: 5
-model_dim: 256
-out_dim: 256
+layers: 6 # increased depth
+model_dim: 384
+out_dim: 384
 dropout: 0.1
 
 # ===== Repro =====

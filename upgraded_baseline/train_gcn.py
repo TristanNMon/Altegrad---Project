@@ -1,6 +1,4 @@
 """
-train_gcn.py
-
 Train a *retrieval-aligned* molecule encoder that maps molecular graphs into the
 same metric space as text embeddings.
 
@@ -18,8 +16,10 @@ from __future__ import annotations
 
 import argparse
 import os
+import math
 from dataclasses import asdict, dataclass
 from typing import Dict, List, Optional, Tuple
+import yaml
 
 import torch
 import torch.nn as nn
@@ -57,7 +57,13 @@ TEST_GRAPHS = os.path.join(DATA_DIR, "test_graphs.pkl")
 TRAIN_EMB_CSV = os.path.join(DATA_DIR, "train_text_embeddings.csv")
 VAL_EMB_CSV = os.path.join(DATA_DIR, "validation_text_embeddings.csv")
 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "mps")
+# Select device
+if torch.cuda.is_available():
+    DEVICE = torch.device("cuda")
+elif torch.backends.mps.is_available():
+    DEVICE = torch.device("mps")
+else:
+    DEVICE = torch.device("cpu")
 
 
 # -------------------------
@@ -172,6 +178,19 @@ class MolGNN(nn.Module):
         edge_index = batch.edge_index
         edge_attr = getattr(batch, "edge_attr", None)
 
+        # Sanity check
+        x = batch.x.long()
+        cards = self.cfg["node_card"]  # list of K per column
+        for col, K in enumerate(cards):
+            mn = int(x[:, col].min())
+            mx = int(x[:, col].max())
+            if mn < 0 or mx >= K:
+                bad = x[(x[:, col] < 0) | (x[:, col] >= K), col][:10].tolist()
+                raise RuntimeError(
+                    f"Node feature out of range in col {col}: min={mn}, max={mx}, K={K}, examples={bad}"
+                )
+
+        # Embed
         h = self.node_emb(x)
 
         if edge_attr is None:
@@ -259,9 +278,9 @@ def retrieval_metrics(
     out: Dict[str, float] = {}
     for k in ks:
         out[f"R@{k}_g2t"] = float((ranks_g2t < k).float().mean().item())
-        out[f"R@{k}_t2g"] = float((ranks_t2g < k).float().mean().item())
+        # out[f"R@{k}_t2g"] = float((ranks_t2g < k).float().mean().item())  # COMMENTED OUT T2G
     out["MRR_g2t"] = float((1.0 / (ranks_g2t.float() + 1.0)).mean().item())
-    out["MRR_t2g"] = float((1.0 / (ranks_t2g.float() + 1.0)).mean().item())
+    # out["MRR_t2g"] = float((1.0 / (ranks_t2g.float() + 1.0)).mean().item())
     return out
 
 
@@ -319,11 +338,18 @@ def eval_val_split(
     return retrieval_metrics(g_all, t_all)
 
 
-def save_checkpoint(path: str, model: MolGNN):
+def save_checkpoint(path: str, model: MolGNN, extra: Optional[Dict] = None):
+    """Save a self-describing checkpoint.
+
+    We keep it lightweight (model weights + model config), but allow optional
+    extra metadata (epoch, best metric, args, optimizer, scheduler, ...).
+    """
     payload = {
         "state_dict": model.state_dict(),
         "config": model.cfg,
     }
+    if extra:
+        payload.update(extra)
     torch.save(payload, path)
 
 
@@ -374,13 +400,76 @@ def main():
     )
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=0)
+
+    # Training control: LR schedule + early stopping (set-and-forget)
+    parser.add_argument(
+        "--scheduler",
+        type=str,
+        default="cosine_warmup",
+        choices=["none", "cosine", "cosine_warmup"],
+        help="Learning-rate schedule. cosine_warmup is usually best for contrastive training.",
+    )
+    parser.add_argument(
+        "--min_lr",
+        type=float,
+        default=1e-5,
+        help="Minimum LR reached at the end of training for cosine schedules.",
+    )
+    parser.add_argument(
+        "--warmup_epochs",
+        type=int,
+        default=1,
+        help="Warmup epochs for cosine_warmup schedule.",
+    )
+    parser.add_argument(
+        "--early_stop_patience",
+        type=int,
+        default=8,
+        help="Stop if MRR_g2t doesn't improve for this many validation epochs. 0 disables.",
+    )
+    parser.add_argument(
+        "--early_stop_min_delta",
+        type=float,
+        default=1e-4,
+        help="Minimum absolute improvement in MRR_g2t to reset patience.",
+    )
     parser.add_argument(
         "--mock",
         action="store_true",
         help="Run quick mock run with data/*_mock.pkl and 1 epoch to test the pipeline.",
     )
 
+    # ReduceLROnPlateau params (only used if scheduler=reduce_on_plateau)
+    parser.add_argument("--rop_factor", type=float, default=0.5)
+    parser.add_argument("--rop_patience", type=int, default=3)
+    parser.add_argument("--rop_threshold", type=float, default=1e-3)
+    parser.add_argument("--rop_threshold_mode", type=str, default="abs")
+    parser.add_argument("--rop_cooldown", type=int, default=0)
+
+    # Parse config
+    parser.add_argument("--config", type=str, default=None)
+
+    # Pre-parse only to get --config
+    cfg_args, _ = parser.parse_known_args()
+
+    cfg = {}
+    if cfg_args.config is not None:
+        with open(cfg_args.config, "r") as f:
+            cfg = yaml.safe_load(f) or {}
+
+        # optional safety check
+        known = {a.dest for a in parser._actions}
+        unknown = set(cfg) - known
+        if unknown:
+            raise ValueError(
+                f"Unknown config keys in {cfg_args.config}: {sorted(unknown)}"
+            )
+
+        parser.set_defaults(**cfg)
+
+    # Parse all args
     args = parser.parse_args()
+    args.config = cfg_args.config
 
     # ------------------------------------------------------------------
     # MOCK MODE: override paths and params for a small dry run
@@ -398,6 +487,11 @@ def main():
         # auto-create tmp folder if needed
         os.makedirs(os.path.dirname(args.out), exist_ok=True)
 
+    print("\n========== RUN CONFIG ==========")
+    for k, v in sorted(vars(args).items()):
+        print(f"{k}: {v}")
+    print("================================\n")
+
     # Fix seed
     torch.manual_seed(args.seed)
 
@@ -408,9 +502,16 @@ def main():
     # infer text embedding dimension from first element
     text_dim = next(iter(train_id2emb.values())).shape[0]
 
-    # Load graphs for cardinalities (use train graphs only)
+    # ---------------------------------------------------------
+    # Load graphs for cardinalities (train + val to avoid OOB in mock)
+    # ---------------------------------------------------------
     train_graphs = load_graphs(args.train_graphs)
-    feat_cards = infer_feature_cardinalities(train_graphs)
+
+    val_graphs = []
+    if os.path.exists(args.val_graphs):
+        val_graphs = load_graphs(args.val_graphs)
+
+    feat_cards = infer_feature_cardinalities(train_graphs + val_graphs)
 
     # Datasets
     train_ds = PreprocessedGraphDataset(args.train_graphs, id2emb=train_id2emb)
@@ -461,6 +562,57 @@ def main():
         model.parameters(), lr=args.lr, weight_decay=args.weight_decay
     )
 
+    # -------------------------
+    # LR scheduler (epoch-wise)
+    # -------------------------
+    scheduler = None
+    scheduler_mode = None  # "epoch" or "metric"
+
+    if args.scheduler != "none":
+        if args.scheduler == "cosine":
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer, T_max=args.epochs, eta_min=args.min_lr
+            )
+            scheduler_mode = "epoch"
+
+        elif args.scheduler == "cosine_warmup":
+            warm = max(0, int(args.warmup_epochs))
+            total = max(1, int(args.epochs))
+            # ratio of final LR to initial LR, clamped to [0, 1]
+            min_ratio = float(args.min_lr) / float(args.lr)
+            min_ratio = min(max(min_ratio, 0.0), 1.0)
+
+            def lr_lambda(epoch: int) -> float:
+                # Linear warmup: 0 -> 1 over warm epochs
+                if warm > 0 and epoch < warm:
+                    return float(epoch + 1) / float(warm)
+                # Cosine decay: 1 -> min_ratio
+                if total - warm <= 0:
+                    return 1.0
+                progress = float(epoch - warm) / float(total - warm)
+                progress = min(max(progress, 0.0), 1.0)
+                cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+                return min_ratio + (1.0 - min_ratio) * cosine
+
+            scheduler = torch.optim.lr_scheduler.LambdaLR(
+                optimizer, lr_lambda=lr_lambda
+            )
+            scheduler_mode = "epoch"
+
+        elif args.scheduler == "reduce_on_plateau":
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer,
+                mode="max",  # MRR increases
+                factor=args.rop_factor,
+                patience=args.rop_patience,
+                threshold=args.rop_threshold,
+                threshold_mode=args.rop_threshold_mode,
+                cooldown=args.rop_cooldown,
+                min_lr=args.min_lr,
+                # verbose=True, # not for pytorch < 1.12
+            )
+            scheduler_mode = "metric"
+
     print(f"Device: {DEVICE}")
     print(f"Train graphs: {len(train_ds)} | Text dim: {text_dim}")
     print(f"Node cards: {feat_cards.node} | Edge cards: {feat_cards.edge}")
@@ -468,29 +620,116 @@ def main():
         print(f"Val graphs: {len(val_ds)}")
     print()
 
-    best = None
+    # Save two checkpoints: best (selected by MRR_g2t) and last (final weights)
+    best_path = args.out
+    last_path = (
+        args.out[:-3] + "_last.pt"
+        if args.out.endswith(".pt")
+        else args.out + "_last.pt"
+    )
+
+    best_mrr = None
+    bad_epochs = 0
+
+    # Training loop
     for ep in range(args.epochs):
         tr_loss = train_one_epoch(
             model, train_dl, optimizer, DEVICE, grad_clip=args.grad_clip
         )
-        msg = f"Epoch {ep+1:03d}/{args.epochs}  loss={tr_loss:.4f}"
+        lr_now = optimizer.param_groups[0]["lr"]
+        msg = f"Epoch {ep+1:03d}/{args.epochs}  loss={tr_loss:.4f}  lr={lr_now:.2e}"
+
         if val_dl is not None:
             scores = eval_val_split(model, val_dl, DEVICE)
             msg += "  " + " ".join([f"{k}={v:.4f}" for k, v in scores.items()])
-            # naive best tracking on MRR_g2t
-            key = scores.get("MRR_g2t", 0.0)
-            if best is None or key > best:
-                best = key
-                save_checkpoint(args.out, model)
-                msg += "  [saved]"
+
+            # Metric used for both early stopping AND scheduler
+            key = float(scores.get("MRR_g2t", 0.0))
+
+            # ReduceLROnPlateau steps
+            if scheduler is not None and scheduler_mode == "metric":
+                scheduler.step(key)
+
+            # Best tracking
+            improved = (best_mrr is None) or (
+                key > best_mrr + args.early_stop_min_delta
+            )
+            if improved:
+                best_mrr = key
+                bad_epochs = 0
+                save_checkpoint(
+                    best_path,
+                    model,
+                    extra={
+                        "epoch": ep + 1,
+                        "best_mrr_g2t": best_mrr,
+                        "train_args": vars(args),
+                    },
+                )
+                msg += "  [saved_best]"
+            else:
+                bad_epochs += 1
+
+            # Early stop if no progress for `patience` epochs
+            if args.early_stop_patience and args.early_stop_patience > 0:
+                if bad_epochs >= args.early_stop_patience:
+                    msg += f"  [early_stop: {bad_epochs} epochs w/o MRR_g2t improv]"
+                    # still write last checkpoint before stopping
+                    save_checkpoint(
+                        last_path,
+                        model,
+                        extra={
+                            "epoch": ep + 1,
+                            "best_mrr_g2t": best_mrr,
+                            "train_args": vars(args),
+                        },
+                    )
+                    print(msg)
+                    break
         else:
             # still save last
-            save_checkpoint(args.out, model)
+            save_checkpoint(
+                last_path,
+                model,
+                extra={"epoch": ep + 1, "train_args": vars(args)},
+            )
+
+        # Always keep a "last" checkpoint (handy for debugging/resume)
+        if val_dl is not None:
+            save_checkpoint(
+                last_path,
+                model,
+                extra={
+                    "epoch": ep + 1,
+                    "best_mrr_g2t": best_mrr,
+                    "train_args": vars(args),
+                },
+            )
+
+        # Epoch-based schedulers step
+        if scheduler is not None and scheduler_mode == "epoch":
+            scheduler.step()
+
+        # Print
         print(msg)
 
+    # Ensure we have a final last checkpoint even if loop ended normally
+    if not os.path.exists(last_path):
+        save_checkpoint(
+            last_path,
+            model,
+            extra={
+                "epoch": args.epochs,
+                "best_mrr_g2t": best_mrr,
+                "train_args": vars(args),
+            },
+        )
+
     if val_dl is None:
-        save_checkpoint(args.out, model)
-    print(f"\nCheckpoint written to: {args.out}")
+        print(f"\nCheckpoint written to: {last_path}")
+    else:
+        print(f"\nBest checkpoint: {best_path}")
+        print(f"Last checkpoint: {last_path}")
 
 
 if __name__ == "__main__":
