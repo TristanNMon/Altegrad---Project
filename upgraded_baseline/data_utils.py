@@ -1,25 +1,3 @@
-"""
-data_utils.py
-
-Utilities for the molecule ↔ text *retrieval* baseline.
-
-The dataset provides:
-- Pickled PyG `Data` objects for graphs (train/val/test).
-- A CSV mapping graph ids -> text embedding vectors (train, optionally val).
-
-This file focuses on:
-- Robust loading of graph pickles and embedding CSVs
-- PyTorch Dataset + collate utilities
-- Small helpers for feature-cardinality inference (for categorical embeddings)
-
-Assumptions (based on the challenge preprocessing):
-- Each graph has `id` (string or int), stored as `graph.id`
-- Node features are categorical ints in `graph.x` with shape [num_nodes, 9]
-- Edge indices in `graph.edge_index` with shape [2, num_edges]
-- Edge features are categorical ints in `graph.edge_attr` with shape [num_edges, 3]
-- Train/val graphs may have `description` (string). Test graphs do not.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -85,18 +63,6 @@ def _parse_embedding_cell(cell) -> Optional[List[float]]:
             return None
 
     return None
-
-
-# def load_descriptions_from_graphs(pkl_path: str) -> Dict[str, str]:
-#     """Return {graph_id: description} for graphs that have a non-empty 'description'."""
-#     graphs = load_graphs(pkl_path)
-#     out: Dict[str, str] = {}
-#     for g in graphs:
-#         gid = str(getattr(g, "id", ""))
-#         desc = getattr(g, "description", None)
-#         if gid and isinstance(desc, str) and desc.strip():
-#             out[gid] = desc
-#     return out
 
 
 # ---------------------------------------------------------------------
@@ -170,17 +136,6 @@ def infer_feature_cardinalities(graphs: Sequence[object]) -> FeatureCardinalitie
 # Dataset + batching
 # ---------------------------------------------------------------------
 class PreprocessedGraphDataset(Dataset):
-    """
-    Dataset over pickled graphs.
-
-    Modes:
-      - If id2emb is provided: returns (graph, text_embedding, graph_id)
-      - Else: returns (graph, graph_id)
-
-    Notes:
-      - We keep graph objects intact (PyG Data).
-      - We also expose num_nodes per item for size-aware batching.
-    """
 
     def __init__(self, graph_pkl: str, id2emb: Optional[Dict[str, Tensor]] = None):
         super().__init__()
@@ -216,13 +171,6 @@ class PreprocessedGraphDataset(Dataset):
 
 
 def collate_fn(batch):
-    """
-    Collate for PyG graphs + optional text embeddings.
-
-    Returns:
-      - if dataset yields (graph, gid): (Batch, gids)
-      - if dataset yields (graph, emb, gid): (Batch, embs, gids)
-    """
     if len(batch) == 0:
         raise ValueError("Empty batch in collate_fn")
 
@@ -240,14 +188,7 @@ def collate_fn(batch):
 
 class NodeCountBatchSampler(Sampler[List[int]]):
     """
-    Batch sampler that limits the *total number of nodes* in each batch.
-
-    This is a practical way to prevent occasional giant graphs from causing OOM.
-    It creates variable-size batches.
-
-    Example:
-        sampler = NodeCountBatchSampler(dataset, max_nodes=4000, shuffle=True)
-        dl = DataLoader(dataset, batch_sampler=sampler, collate_fn=collate_fn)
+    Batch sampler that limits the total number of nodes in each batch.
     """
 
     def __init__(

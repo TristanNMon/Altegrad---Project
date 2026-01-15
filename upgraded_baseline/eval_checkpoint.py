@@ -1,15 +1,3 @@
-"""
-eval_checkpoint.py
-
-Load a trained checkpoint (.pt) from train_gcn.py and evaluate it on a split
-(typically validation) without any retraining.
-
-Usage examples:
-  python eval_checkpoint.py --ckpt tmp/best.pt
-  python eval_checkpoint.py --ckpt tmp/best.pt --val_graphs data/validation_graphs.pkl --val_emb_csv data/validation_text_embeddings.csv
-  python eval_checkpoint.py --ckpt tmp/best.pt --mock
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -18,7 +6,6 @@ import os
 import torch
 from torch.utils.data import DataLoader
 
-# Imports from baseline folder (same trick as train script)
 import sys
 from pathlib import Path
 
@@ -31,7 +18,6 @@ from data_utils import (
 
 from data_baseline.data_utils import load_id2emb
 
-# Import model + eval functions from your training script
 from train_gcn import (
     DEVICE,
     load_checkpoint,

@@ -1,19 +1,3 @@
-"""
-Generate the submission CSV by *retrieving* a caption from the training set.
-
-Pipeline:
-1) Load trained checkpoint (graph encoder + text projection head).
-2) Project + normalize all training text embeddings once.
-3) For each test graph, compute graph embedding and retrieve nearest training caption.
-
-Simple inference upgrade over top-1 NN:
-- retrieve top-k, compute a soft prototype (weighted average), then select the best
-  candidate among those top-k ("kNN smoothing"). This reduces brittleness.
-
-Output format (typical):
-  ID, description
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -185,7 +169,7 @@ def main():
     args = parser.parse_args()
 
     if args.mock:
-        print("\n🧪 MOCK MODE ENABLED — running short retrieval pipeline test\n")
+        print("\nMOCK MODE ENABLED — running short retrieval pipeline test\n")
         args.ckpt = "tmp/mock_ckpt.pt"
         args.train_graphs = "data/train_graphs_mock.pkl"
         args.test_graphs = "data/test_graphs_mock.pkl"

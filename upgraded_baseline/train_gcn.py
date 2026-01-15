@@ -1,17 +1,3 @@
-"""
-Train a *retrieval-aligned* molecule encoder that maps molecular graphs into the
-same metric space as text embeddings.
-
-Key upgrades vs a naive baseline:
-- Use *categorical embeddings per feature column* for atoms and bonds
-- Use an *edge-aware* message passing layer (GINEConv) that conditions on bond features
-- Train with a *symmetric contrastive (CLIP-style) loss* instead of MSE regression
-- Use *mean pooling* + projection + L2 normalization for stable cosine retrieval
-- Optional *node-count capped batching* for variable-size graphs
-
-This still follows the "graph -> embedding -> retrieve nearest caption" philosophy.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -72,8 +58,6 @@ else:
 class ColumnwiseCategoricalEmbedding(nn.Module):
     """
     Embed each categorical feature column with its own embedding table, then combine.
-
-    Combine strategy: sum of per-column embeddings (simple + strong).
     """
 
     def __init__(self, cardinalities: List[int], emb_dim: int, dropout: float = 0.0):
@@ -339,11 +323,6 @@ def eval_val_split(
 
 
 def save_checkpoint(path: str, model: MolGNN, extra: Optional[Dict] = None):
-    """Save a self-describing checkpoint.
-
-    We keep it lightweight (model weights + model config), but allow optional
-    extra metadata (epoch, best metric, args, optimizer, scheduler, ...).
-    """
     payload = {
         "state_dict": model.state_dict(),
         "config": model.cfg,
@@ -471,11 +450,8 @@ def main():
     args = parser.parse_args()
     args.config = cfg_args.config
 
-    # ------------------------------------------------------------------
-    # MOCK MODE: override paths and params for a small dry run
-    # ------------------------------------------------------------------
     if args.mock:
-        print("\n🧪 MOCK MODE ENABLED — running short pipeline test\n")
+        print("\n MOCK MODE ENABLED — running short pipeline test\n")
         args.train_graphs = "data/train_graphs_mock.pkl"
         args.val_graphs = "data/validation_graphs_mock.pkl"
         args.train_emb_csv = "data/train_text_embeddings.csv"
@@ -502,9 +478,7 @@ def main():
     # infer text embedding dimension from first element
     text_dim = next(iter(train_id2emb.values())).shape[0]
 
-    # ---------------------------------------------------------
     # Load graphs for cardinalities (train + val to avoid OOB in mock)
-    # ---------------------------------------------------------
     train_graphs = load_graphs(args.train_graphs)
 
     val_graphs = []
@@ -694,7 +668,6 @@ def main():
                 extra={"epoch": ep + 1, "train_args": vars(args)},
             )
 
-        # Always keep a "last" checkpoint (handy for debugging/resume)
         if val_dl is not None:
             save_checkpoint(
                 last_path,

@@ -41,10 +41,8 @@ def main():
 
         embs = model.encode(
             descs, show_progress_bar=True, normalize_embeddings=True
-        )  # (N, D) float32/float64
+        )  # (N, D)
 
-        # ---- Baseline format: ID + embedding(string) ----
-        # Use a consistent float formatting to keep file size reasonable.
         emb_strs = [",".join(f"{x:.6g}" for x in row) for row in embs]
 
         df = pd.DataFrame(
